@@ -137,32 +137,6 @@ class Recorder(
     }
 
     private val mCaptureSessionListener = object : CameraCaptureSession.CaptureCallback() {
-        val TAG_ON_CAPTURE_STARTED = "onCaptureStarted"
-        val TAG_ON_CAPTURE_PROGRESSED = "onCaptureProgressed"
-        val TAG_ON_CAPTURE_COMPLETED = "onCaptureCompleted"
-
-        override fun onCaptureStarted(
-            session: CameraCaptureSession,
-            request: CaptureRequest,
-            timestamp: Long,
-            frameNumber: Long
-        ) {
-            super.onCaptureStarted(session, request, timestamp, frameNumber)
-            Log.i(TAG_ON_CAPTURE_STARTED, "Capture has started.")
-        }
-
-        override fun onCaptureProgressed(
-            session: CameraCaptureSession,
-            request: CaptureRequest,
-            partialResult: CaptureResult
-        ) {
-            super.onCaptureProgressed(session, request, partialResult)
-            Log.i(
-                TAG_ON_CAPTURE_PROGRESSED,
-                (partialResult.get(CaptureResult.JPEG_THUMBNAIL_SIZE) ?: "None").toString()
-            )
-        }
-
         override fun onCaptureCompleted(
             session: CameraCaptureSession,
             request: CaptureRequest,
