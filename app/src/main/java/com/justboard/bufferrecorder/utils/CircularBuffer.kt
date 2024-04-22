@@ -4,18 +4,15 @@ import android.media.MediaCodec
 import android.util.Log
 import java.nio.ByteBuffer
 
-class EncoderBuffer(
+class CircularBuffer(
     private val bitRate: Int,
     private val frameRate: Int,
     private val desiredSpanSec: Int
 ) {
     companion object {
-        const val TAG = "EncoderBuffer"
+        const val TAG = "CircularBuffer"
         const val EXTRA_DEBUG = true
-        const val VERBOSE = false
-
-        const val MIME_TYPE = "video/avc"
-        const val IFRAME_INTERVAL = 1
+        const val VERBOSE = true
     }
 
     private var mDataBufferWrapper: ByteBuffer
@@ -28,6 +25,9 @@ class EncoderBuffer(
 
     private var mMetaHead: Int = 0
     private var mMetaTail: Int = 0
+
+    @Volatile
+    var canRead: Boolean = true
 
     init {
         val dataBufferSize = bitRate * desiredSpanSec / 8;
@@ -57,7 +57,7 @@ class EncoderBuffer(
 
     fun add(buf: ByteBuffer, flags: Int, ptsUsec: Long): Unit {
         val size = buf.limit() - buf.position()
-        if (VERBOSE) Log.d(TAG, "add size=$size flags=0x ${Integer.toHexString(flags)} pts=$ptsUsec")
+        if (VERBOSE) Log.d(TAG, "add size=$size flags=0x${Integer.toHexString(flags)} pts=$ptsUsec")
 
         while (!canAdd(size)) removeTail()
 
@@ -94,7 +94,7 @@ class EncoderBuffer(
 
         var index = mMetaTail
         while (index != mMetaHead) {
-            if (mPacketFlags[index] and MediaCodec.BUFFER_FLAG_SYNC_FRAME != 0) {
+            if (mPacketFlags[index] and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0) {
                 break
             }
             index = (index + 1) % metaLen
