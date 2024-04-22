@@ -41,11 +41,32 @@ class Recorder(
     private val mCameraManager: CameraManager
 ) : CameraDevice.StateCallback(), ImageReader.OnImageAvailableListener {
     companion object {
-        val TAG = "RawRecorder"
-        val CAMERA_TAG = "RawRecorder:Camera"
-        val IMAGE_READER_TAG = "RawRecorder:ImageReader"
+        val TAG = "Recorder"
+        val CAMERA_TAG = "Recorder:Camera"
 
-        val IMAGE_FORMAT = ImageFormat.YUV_420_888
+        val VIDEO_WIDTH = 1920
+        val VIDEO_HEIGHT = 1080
+        val FRAME_RATE = 30
+        val BIT_RATE = 6_000_000
+        val MIME_TYPE = "video/avc"
+
+        val SPAN_SEC = 30
+
+        // 720p:
+        //      30fps -> 6_000_000
+        //      60fps -> 10_000_000
+        //
+        // 1080p:
+        //      30fps -> 10_000_000
+        //      60fps -> 15_000_000
+        //
+        // 1440p:
+        //      30fps -> 20_000_000
+        //      60fps -> 30_000_000
+        //
+        // 2160p:
+        //      30fps -> 44_000_000 - 56_000_000
+        //      60fps -> 66_000_000 - 85_000_000
     }
 
     private var mPersistentFileStorage: File? = null
