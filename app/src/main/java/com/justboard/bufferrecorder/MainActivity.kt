@@ -2,7 +2,6 @@ package com.justboard.bufferrecorder
 
 import android.content.Context
 import android.hardware.camera2.CameraManager
-import android.media.ImageReader
 import android.os.Bundle
 import android.os.Handler
 import android.os.Message
@@ -14,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -40,7 +40,6 @@ import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.justboard.bufferrecorder.components.views.AutoFitTextureView
 import com.justboard.bufferrecorder.services.Recorder
-import com.justboard.bufferrecorder.services.Recorder.Companion.IMAGE_FORMAT
 import com.justboard.bufferrecorder.ui.theme.BufferRecorderTheme
 import com.justboard.bufferrecorder.utils.Encoder
 import com.justboard.bufferrecorder.workers.IdleRecordingWorker
@@ -72,12 +71,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             BufferRecorderTheme {
-                SimpleMainGrid(
-                    onStartIdle = { startRecording("Idle") },
-                    onStopIdle = { stopRecording("Idle") },
-                    onStartActive = { startRecording("Active") },
-                    onStopActive = { stopRecording("Active") },
-                )
+                SimpleMainGrid(mHandler!!)
             }
         }
     }
@@ -128,8 +122,10 @@ class MainActivity : ComponentActivity() {
             sendMessage(obtainMessage(MSG_FILE_SAVE_COMPLETE, status, 0, null))
         }
 
-        override fun bufferStatus(totalTimeMsec: Int) {
-            sendMessage(obtainMessage(MSG_BUFFER_STATUS, (totalTimeMsec shr 32), totalTimeMsec))
+        override fun bufferStatus(totalTimeMsec: Long) {
+            sendMessage(obtainMessage(MSG_BUFFER_STATUS, ((totalTimeMsec shr 32).toInt()),
+                totalTimeMsec.toInt()
+            ))
         }
     }
 }
@@ -138,10 +134,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun SimpleMainGrid(
-    onStartIdle: () -> Unit = {},
-    onStopIdle: () -> Unit = {},
-    onStartActive: () -> Unit = {},
-    onStopActive: () -> Unit = {},
+    mHandler: MainActivity.MainHandler
 ) {
     val context = LocalContext.current
     val filesDir = context.filesDir.apply {
@@ -161,15 +154,8 @@ fun SimpleMainGrid(
     )
 
     if (cameraPermissionState.allPermissionsGranted) {
-//        val imageReader = ImageReader.newInstance(4032, 3024, ImageFormat.PRIVATE, 30)
-//        val imageReader = ImageReader.newInstance(1920, 1080, IMAGE_FORMAT, 30)
-
-        val imageReader = ImageReader.newInstance(1920, 1080, IMAGE_FORMAT, 30)
-
         val mAutoFitTextureView = AutoFitTextureView(context)
         val recorder = Recorder(Dispatchers.IO, windowManager, cameraManager)
-//        val encoder = Encoder()
-//        val muxer = MediaMuxer()
 
         // FIXME Wszystko leci w jednym bieżącym kontekcie - nie powinno tak być.
         LaunchedEffect(Unit) {
@@ -205,9 +191,9 @@ fun SimpleMainGrid(
         ) { innerPadding ->
             AndroidView(
                 factory = { mAutoFitTextureView },
-                modifier = Modifier.padding(innerPadding)
+//                modifier = Modifier.padding(innerPadding)
 //                modifier = Modifier.width(500.dp).height(500.dp).padding(innerPadding)
-//                modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(innerPadding)
+                modifier = Modifier.fillMaxWidth().fillMaxHeight().padding(innerPadding)
             )
         }
     } else {
@@ -242,10 +228,4 @@ fun StateStop(
             onClick = { onStart() }
         )
     }
-}
-
-@Preview
-@Composable
-fun SimpleMainGridPreview() {
-    SimpleMainGrid()
 }

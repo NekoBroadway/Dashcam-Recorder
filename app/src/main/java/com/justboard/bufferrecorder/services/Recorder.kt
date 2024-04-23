@@ -248,7 +248,8 @@ class Recorder(
             result: TotalCaptureResult
         ) {
             super.onCaptureCompleted(session, request, result)
-            Log.i(TAG_ON_CAPTURE_COMPLETED, result.frameNumber.toString())
+            _mFrameNumber.value++
+            Log.i(CAMERA_TAG, result.frameNumber.toString())
         }
     }
 
