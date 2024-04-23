@@ -119,7 +119,7 @@ class Recorder(
         mTextureView = textureView
         mTextureView!!.surfaceTextureListener = mTextureView
         mTextureView!!.surfaceTexture!!.apply {
-            setDefaultBufferSize(4032, 3024)
+            setDefaultBufferSize(VIDEO_WIDTH, VIDEO_HEIGHT)
             mTextureViewSurface = Surface(this)
         }
     }
