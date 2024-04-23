@@ -173,9 +173,10 @@ fun SimpleMainGrid(
 
         // FIXME Wszystko leci w jednym bieżącym kontekcie - nie powinno tak być.
         LaunchedEffect(Unit) {
-            recorder.bindImageReader(imageReader)
             recorder.bindPersistentFileStorage(filesDir)
             recorder.bindTextureView(mAutoFitTextureView)
+            recorder.bindCircularBuffer()
+            recorder.bindMediaCodec()
             recorder.openCamera()
         }
 

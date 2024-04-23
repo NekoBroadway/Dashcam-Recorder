@@ -216,6 +216,12 @@ class Recorder(
         mMediaMuxer!!.start()
     }
 
+    fun bindCircularBuffer() {
+        // TODO Bitrate depends on frameRate and video size.
+        // TODO Would be good to depend on CameraProfile classes.
+        mCircularBuffer = CircularBuffer(BIT_RATE, FRAME_RATE, SPAN_SEC)
+    }
+
     private val mCaptureSessionCallback = object : CameraCaptureSession.StateCallback() {
         override fun onConfigured(session: CameraCaptureSession) {
             session.setRepeatingRequest(
