@@ -137,12 +137,8 @@ fun SimpleMainGrid(
     mHandler: MainActivity.MainHandler
 ) {
     val context = LocalContext.current
-    val filesDir = context.filesDir.apply {
-        val tmpDir = File(this, "tmp")
-        if (!tmpDir.exists()) {
-            tmpDir.mkdir()
-        }
-    }
+    val filesDir = context.filesDir
+
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
