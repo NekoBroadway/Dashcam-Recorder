@@ -39,7 +39,7 @@ class Recorder(
     private val ioDispatcher: CoroutineDispatcher,
     private val mWindowManager: WindowManager,
     private val mCameraManager: CameraManager
-) : CameraDevice.StateCallback(), ImageReader.OnImageAvailableListener {
+) : CameraDevice.StateCallback() {
     companion object {
         val TAG = "Recorder"
         val CAMERA_TAG = "Recorder:Camera"
@@ -79,8 +79,13 @@ class Recorder(
     private var mTextureView: AutoFitTextureView? = null    // The TextureView
     private var mTextureViewSurface: Surface? = null        // The TextureView Surface
 
-    private var mImageReader: ImageReader? = null           // The ImageReader
-    private var mImageReaderSurface: Surface? = null        // The ImageReader Surface
+    private var mMediaCodec: MediaCodec? = null             // The ImageReader
+    private var mMediaCodecSurface: Surface? = null         // The ImageReader Surface
+
+    private var mMediaMuxer: MediaMuxer? = null             // The MediaMuxer
+    private var mVideoTrackIndex: Int? = null               // The Video track index
+
+    private var mCircularBuffer: CircularBuffer? = null
 
 
     private var _mIsRecording: MutableStateFlow<Boolean> = MutableStateFlow(false)
@@ -114,12 +119,101 @@ class Recorder(
         }
     }
 
-//    fun bindEncoderSurface() {}
 
-    fun bindImageReader(imageReader: ImageReader) {
-        mImageReader = imageReader
-        mImageReader!!.setOnImageAvailableListener(this, Handler())
-        mImageReaderSurface = imageReader.surface
+    private val mMediaCodecCallback = object: MediaCodec.Callback() {
+        val TAG = "MediaCodecCallback"
+        val VERBOSE = true
+
+        override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
+            Log.i(TAG, "onInputBufferAvailable")
+            codec.getInputBuffer(index)
+        }
+
+        override fun onOutputBufferAvailable(
+            codec: MediaCodec,
+            index: Int,
+            info: MediaCodec.BufferInfo
+        ) {
+            Log.i(TAG, "onOutputBufferAvailable")
+
+            if (mMediaMuxer == null) {
+                Log.w(TAG, "The muxer is null")
+                bindMuxer()
+            }
+
+            val encodedData = codec.getOutputBuffer(index)
+
+            if (encodedData == null) {
+                Log.e(TAG, "No data.")
+                codec.releaseOutputBuffer(index, false)
+                return
+            }
+
+            if (_mIsRecording.value) {
+                if (mCircularBuffer!!.canRead) {
+                    var mCircularBufferIndex = mCircularBuffer!!.getFirstIndex()
+                    val mCircularBufferInfo = MediaCodec.BufferInfo()
+                    do {
+                        val chunk = mCircularBuffer!!.getChunk(mCircularBufferIndex, mCircularBufferInfo)
+                        if (VERBOSE) Log.d(TAG, "SAVE $mCircularBufferIndex flags=0x${Integer.toHexString(mCircularBufferInfo.flags)}")
+                        mMediaMuxer!!.writeSampleData(mVideoTrackIndex!!, chunk, mCircularBufferInfo)
+                        mCircularBufferIndex = mCircularBuffer!!.getNextIndex(mCircularBufferIndex)
+                    } while (mCircularBufferIndex >= 0)
+                    mCircularBuffer!!.canRead = false
+                }
+                println("Is recording: ${_mIsRecording.value}")
+                mMediaMuxer!!.writeSampleData(mVideoTrackIndex!!, encodedData, info)
+            } else {
+                mCircularBuffer!!.add(encodedData, info.flags, info.presentationTimeUs)
+            }
+
+            codec.releaseOutputBuffer(index, false)
+        }
+
+        override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+            Log.i(Encoder.TAG, "onError")
+        }
+
+        override fun onCryptoError(codec: MediaCodec, e: MediaCodec.CryptoException) {
+            super.onCryptoError(codec, e)
+            Log.i(Encoder.TAG, "onCryptoError")
+        }
+
+        override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+            Log.i(Encoder.TAG, "onOutputFormatChanged")
+        }
+    }
+
+    fun bindMediaCodec() {
+        val mediaCodec = MediaCodec.createEncoderByType(MIME_TYPE)
+        val mediaFormat = MediaFormat.createVideoFormat(MIME_TYPE, VIDEO_WIDTH, VIDEO_HEIGHT)
+        mediaFormat.apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
+            setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, Encoder.IFRAME_INTERVAL)
+        }
+
+        mMediaCodec = mediaCodec
+        mMediaCodec!!.setCallback(mMediaCodecCallback)  // TODO pass handler for multi-threading.
+        mMediaCodec!!.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        mMediaCodecSurface = MediaCodec.createPersistentInputSurface()
+        mMediaCodec!!.setInputSurface(mMediaCodecSurface!!)
+        mMediaCodec!!.start()
+    }
+
+    fun bindMuxer() {
+        val formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+        val current = LocalDateTime.now().format(formatter)
+        val outputFile = File(mPersistentFileStorage, "${current}.mp4")
+
+        mMediaMuxer = MediaMuxer(outputFile.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+        val videoFormat = mMediaCodec!!.outputFormat
+        mVideoTrackIndex = mMediaMuxer!!.addTrack(videoFormat)
+        mMediaMuxer!!.setOrientationHint(90)
+
+        mMediaMuxer!!.start()
     }
 
     private val mCaptureSessionCallback = object : CameraCaptureSession.StateCallback() {
@@ -174,7 +268,6 @@ class Recorder(
             cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                 ?: throw RuntimeException("Cannot get available preview/video sizes")
 
-
         val width: Int?
         val height: Int?
         val cropRect: Rect?
@@ -195,24 +288,18 @@ class Recorder(
             CAMERA_TAG,
             "The rotation (calculated): ${(mSensorOrientation!! - mDisplayRotation!! * -1 + 360) % 360}"
         )
-        /**/
-
-        if (mImageReader != null) {
-            mImageReaderSurface = mImageReader!!.surface
-            Log.i(CAMERA_TAG, "The ImageReader is not null")
-        }
 
         mCaptureRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
         mCaptureRequest!!.apply {
             addTarget(mTextureViewSurface!!)
-            addTarget(mImageReaderSurface!!)
+            addTarget(mMediaCodecSurface!!)
             set(CaptureRequest.SCALER_CROP_REGION, cropRect)
         }
 
         cameraDevice.createCaptureSession(
             listOf(
                 mTextureViewSurface!!,
-                mImageReaderSurface!!,
+                mMediaCodecSurface!!,
             ),
             mCaptureSessionCallback,
             Handler()
@@ -223,7 +310,6 @@ class Recorder(
         super.onClosed(camera)
         Log.i(CAMERA_TAG, "onClosed")
         mTextureViewSurface?.release()
-        mImageReaderSurface?.release()
     }
 
     override fun onDisconnected(camera: CameraDevice) {
@@ -233,99 +319,6 @@ class Recorder(
     override fun onError(camera: CameraDevice, error: Int) {
         Log.i(CAMERA_TAG, "onError")
         Log.e(CAMERA_TAG, error.toString())
-    }
-
-    override fun onImageAvailable(reader: ImageReader?) {
-        Log.i(IMAGE_READER_TAG, "onImageAvailable")
-
-        if (reader == null) {
-            Log.w(IMAGE_READER_TAG, "The reader is not initialized.")
-            return
-        }
-
-        val image: Image? = reader.acquireLatestImage()
-
-        if (image == null) {
-            Log.w(IMAGE_READER_TAG, "The image is null")
-            return
-        }
-
-        if (!_mIsRecording.value) {
-            Log.w(IMAGE_READER_TAG, "The recording is not enabled. Skipping.")
-            image.close()
-            return
-        }
-
-        Log.i(IMAGE_READER_TAG, image.width.toString())
-        Log.i(IMAGE_READER_TAG, image.height.toString())
-
-        /**/
-        Log.i(IMAGE_READER_TAG, "Image format: ${image.format}.")
-
-        when (image.format) {
-            ImageFormat.YUV_420_888 -> {
-                val meta: ByteBuffer = ByteBuffer.allocate(0)
-                val Y: Image.Plane = image.planes[0]
-                val U: Image.Plane = image.planes[1]
-                val V: Image.Plane = image.planes[2]
-
-                val metaB: Int = meta.remaining()
-                val Yb: Int = Y.buffer.remaining()
-                val Ub: Int = U.buffer.remaining()
-                val Vb: Int = V.buffer.remaining()
-
-                val imageByteArray = ByteArray(metaB + Yb + Ub + Vb)
-
-                meta.get(imageByteArray, 0, metaB)
-                Y.buffer.get(imageByteArray, metaB, Yb)
-                U.buffer.get(imageByteArray, metaB + Yb, Ub)
-                V.buffer.get(imageByteArray, metaB + Yb + Ub, Vb)
-
-                handleYuvData(imageByteArray)
-                image.close()
-            }
-
-            else -> {
-                Log.w(IMAGE_READER_TAG, "Unhandled image format.")
-            }
-        }
-        /**/
-    }
-
-    private var mFos: FileOutputStream? = null
-    private fun handleYuvData(imageByteArray: ByteArray) {
-        Log.i(IMAGE_READER_TAG, "Processing YUV_420_888 data format.")
-
-        val outputFile = File(
-            mPersistentFileStorage!!,
-            "tmp/${String.format("%05d", _mFrameNumber.value++)}.yuv"
-        )
-//        val outputFile = File(mPersistentFileStorage!!, "tmp/bulk.yuv")
-
-        if (!outputFile.exists()) {
-            outputFile.createNewFile()
-        }
-
-        /*1. Zapis do wielu plików. Dla jednej klatki - jeden plik i jeden stream. */
-        val fos = outputFile.outputStream()
-        fos.write(imageByteArray)
-        fos.close()
-        /*1*/
-
-//        /*2. Zapis do jednego pliku. */
-//        if (mFos == null) {
-//            mFos = outputFile.outputStream()
-//        }
-//
-//        if (_mIsRecording.value) {
-//            mFos!!.write(imageByteArray)
-//            _mFrameNumber.value++
-//        } else {
-//            mFos!!.close()
-//        }
-//        /*2*/
-
-        Log.i(IMAGE_READER_TAG, "Done. Closing image.")
     }
 
     public sealed class State(
