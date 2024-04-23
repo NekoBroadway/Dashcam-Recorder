@@ -99,7 +99,12 @@ class Recorder(
     }
 
     fun stopRecording() {
+        Log.e(TAG, "Is stopped.")
+
         _mIsRecording.value = false
+        mMediaMuxer!!.stop()
+        mMediaMuxer!!.release()
+        mMediaMuxer = null
     }
 
     fun bindPersistentFileStorage(persistentFileStorage: File) {
