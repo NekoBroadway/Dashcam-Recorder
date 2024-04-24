@@ -14,6 +14,9 @@ object Versions {
         val core = "1.2.3"
     }
 
+    object ExoPlayer {
+        val core = "1.3.1"
+    }
     object WorkManager {
         val core = "2.8.1"
     }

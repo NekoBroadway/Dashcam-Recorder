@@ -1,6 +1,7 @@
 import com.justboard.buildsrc.compose
 import com.justboard.buildsrc.camera2
 import com.justboard.buildsrc.camerax
+import com.justboard.buildsrc.exoPlayer
 import com.justboard.buildsrc.workManager
 
 plugins {
@@ -58,6 +59,7 @@ dependencies {
     compose()
     camera2()
     camerax()
+    exoPlayer()
     workManager()
 
     implementation("androidx.core:core-ktx:1.9.0")

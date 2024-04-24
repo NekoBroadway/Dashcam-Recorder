@@ -60,6 +60,12 @@ object Deps {
 
     }
 
+    object ExoPlayer {
+        val core = "androidx.media3:media3-exoplayer:${Versions.ExoPlayer.core}"
+        val dash = "androidx.media3:media3-exoplayer-dash:${Versions.ExoPlayer.core}"
+        val ui = "androidx.media3:media3-ui:${Versions.ExoPlayer.core}"
+    }
+
     object WorkManager {
         val runtime = "androidx.work:work-runtime-ktx:${Versions.WorkManager.core}"
         val multiprocess = "androidx.work:work-multiprocess:${Versions.WorkManager.core}"
@@ -94,6 +100,12 @@ fun DependencyHandler.camerax() {
     implementation(Deps.CameraX.video)
     implementation(Deps.CameraX.view)
     implementation(Deps.CameraX.extensions)
+}
+
+fun DependencyHandler.exoPlayer() {
+    implementation(Deps.ExoPlayer.core)
+    implementation(Deps.ExoPlayer.dash)
+    implementation(Deps.ExoPlayer.ui)
 }
 
 fun DependencyHandler.workManager() {
