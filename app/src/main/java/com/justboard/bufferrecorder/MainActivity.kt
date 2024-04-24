@@ -1,6 +1,7 @@
 package com.justboard.bufferrecorder
 
 import android.content.Context
+import android.content.Intent
 import android.hardware.camera2.CameraManager
 import android.os.Bundle
 import android.os.Handler
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat.startActivity
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
@@ -174,13 +176,13 @@ fun SimpleMainGrid(
                     horizontalArrangement = Arrangement.Absolute.SpaceBetween
                 ) {
                     when (recorder.getIsRecording().collectAsState().value) {
-                        true -> {
-                            StateStart(onStop = recorder::stopRecording)
-                        }
+                        true -> StateStart(onStop = recorder::stopRecording)
+                        false -> StateStop(onStart = recorder::startRecording)
+                    }
 
-                        false -> {
-                            StateStop(onStart = recorder::startRecording)
-                        }
+                    PlayerButton {
+                        val intent = Intent(context, PlayerActivity::class.java)
+                        startActivity(context, intent, null)
                     }
                 }
             }, floatingActionButtonPosition = FabPosition.Center
@@ -222,6 +224,19 @@ fun StateStop(
             text = { Text(Recorder.State.Start.text) },
             icon = { Icon(Icons.Outlined.PlayArrow, "Start") },
             onClick = { onStart() }
+        )
+    }
+}
+
+@Composable
+fun PlayerButton(
+    onClick: () -> Unit,
+) {
+    Column {
+        ExtendedFloatingActionButton(
+            text = { Text(Recorder.State.Start.text) },
+            icon = { Icon(Icons.Outlined.PlayArrow, "Start") },
+            onClick = { onClick() }
         )
     }
 }
