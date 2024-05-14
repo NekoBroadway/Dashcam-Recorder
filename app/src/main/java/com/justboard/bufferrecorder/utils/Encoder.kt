@@ -1,6 +1,7 @@
 package com.justboard.bufferrecorder.utils
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.Handler
@@ -19,55 +20,212 @@ class Encoder(
     private val bitRate: Int,
     private val frameRate: Int,
     private val desiredSpanSec: Int,
-    private val cb: Encoder.Callback,
+    private val cb: EncoderThread.EncoderCallback,
 ) {
-    class EncoderThread : Thread() {
+    companion object {
+        const val TAG = "Encoder"
+        const val VERBOSE = false
+
+        const val MIME_TYPE = "video/avc"
+        const val IFRAME_INTERVAL = 1
+    }
+
+    private var mEncoderThread: EncoderThread? = null
+    private var mInputSurface: Surface? = null
+    private var mEncoder: MediaCodec? = null
+
+    private val mMediaCodecCallback = object: MediaCodec.Callback() {
+        override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
+            TODO("Not yet implemented")
+        }
+
+        override fun onOutputBufferAvailable(
+            codec: MediaCodec,
+            index: Int,
+            info: MediaCodec.BufferInfo
+        ) {
+            Log.i(TAG, "onOutputBufferAvailable")
+        }
+
+        override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+            Log.i(TAG, "onError")
+        }
+
+        override fun onCryptoError(codec: MediaCodec, e: MediaCodec.CryptoException) {
+            super.onCryptoError(codec, e)
+        }
+
+        override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+            Log.i(TAG, "onOutputFormatChanged")
+        }
+    }
+
+    init {
+        if (desiredSpanSec < IFRAME_INTERVAL * 2)
+            throw RuntimeException("Requested time span is too short: $desiredSpanSec vs. ${IFRAME_INTERVAL * 2}")
+
+        val circularBuffer = CircularBuffer(bitRate, frameRate, desiredSpanSec)
+
+        val format = MediaFormat.createVideoFormat(MIME_TYPE, width, height)
+        format.apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, IFRAME_INTERVAL)
+        }
+        if (VERBOSE) Log.d(TAG, "format: $format")
+
+        mEncoder = MediaCodec.createEncoderByType(MIME_TYPE)
+        mEncoder!!.setCallback(mMediaCodecCallback)
+        mEncoder!!.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        mInputSurface = mEncoder!!.createInputSurface()
+        mEncoder!!.start()
+
+        mEncoderThread = EncoderThread(mEncoder!!, circularBuffer, cb)
+        mEncoderThread!!.start()
+        mEncoderThread!!.waitUntilReady()
+    }
+
+    fun getInputSurface(): Surface = mInputSurface!!
+
+    fun shutdown() {
+        if (VERBOSE) Log.d(TAG, "releasing encoder objects")
+
+        val handler = mEncoderThread!!.getHandler()
+        handler.sendMessage(handler.obtainMessage(EncoderThread.EncoderHandler.MSG_SHUTDOWN))
+
+        try {
+            mEncoderThread!!.join()
+        } catch (ie: InterruptedException) {
+            Log.w(TAG, "Encoder thread join() was interrupted", ie)
+        }
+
+        if (mEncoder != null) {
+            mEncoder!!.stop()
+            mEncoder!!.release()
+            mEncoder = null
+        }
+    }
+
+    fun frameAvailableSoon() {
+        val handler: EncoderThread.EncoderHandler = mEncoderThread!!.getHandler()
+        handler.sendMessage(handler.obtainMessage(EncoderThread.EncoderHandler.MSG_FRAME_AVAILABLE_SOON))
+    }
+
+    fun saveVideo(outputFile: File) {
+        val handler: EncoderThread.EncoderHandler = mEncoderThread!!.getHandler()
+        handler.sendMessage(handler.obtainMessage(EncoderThread.EncoderHandler.MSG_SAVE_VIDEO))
+    }
+
+    class EncoderThread(
+        private val mEncoder: MediaCodec,
+        private val mCircularBuffer: CircularBuffer,
+        private val mCallback: EncoderCallback
+    ) : Thread() {
         companion object {
             val TAG = "EncoderThread"
             val VERBOSE = false
-
-
         }
 
-        private var mEncoderThread: EncoderThread? = null
-        private var mInputSurface: Surface? = null
-        private var mEncoder: MediaCodec? = null
+        interface EncoderCallback {
+            fun fileSaveComplete(status: Int): Unit
+            fun bufferStatus(totalTimeMsec: Long): Unit
+        }
+
         private var mEncodedFormat: MediaFormat? = null
-        private var mEncBuffer: EncoderBuffer? = null
         private var mHandler: EncoderHandler? = null
-        private var mCallback: EncoderCallback? = null
+        private var mBufferInfo: MediaCodec.BufferInfo? = null
 
         @Volatile
         private var mReady = false
-        private var mLock = Any()
+        private var mLock = Object()
+        private var mFrameNum: Int = 0
+
+        init {
+            mBufferInfo = MediaCodec.BufferInfo()
+        }
 
         override fun run() {
             super.run()
         }
 
-        fun frameAvailableSoon() {
-            val handler: EncoderHandler = mEncoderThread!!.getHandler()
-            handler.sendMessage(handler.obtainMessage(EncoderHandler.MSG_FRAME_AVAILABLE_SOON))
-        }
-
-        interface EncoderCallback {
-            fun fileSaveComplete(status: Int): Unit
-            fun bufferStatus(totalTimeMsec: Int): Unit
-        }
-
-        private fun getHandler(): EncoderHandler {
+        fun waitUntilReady() {
             synchronized(mLock) {
-                if (!mReady) {
-                    throw RuntimeException("Not ready")
+                while (!mReady) {
+                    try {
+                        mLock.wait()
+                    } catch (ie: InterruptedException) { /* TODO */ }
                 }
             }
+        }
+
+        fun getHandler(): EncoderHandler {
+            synchronized(mLock) {
+                if (!mReady) throw RuntimeException("Not ready")
+            }
             return mHandler!!
+        }
+
+        fun drainEncoder() {
+            val TIMEOUT_USEC: Long = 0
+
+            var encoderOutputBuffers = mEncoder.outputBuffers
+
+            while (true) {
+                var encoderStatus = mEncoder.dequeueOutputBuffer(mBufferInfo!!, TIMEOUT_USEC)
+                if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    break
+                } else if (encoderStatus == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+                    encoderOutputBuffers = mEncoder.outputBuffers
+                } else if (encoderStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    mEncodedFormat = mEncoder.outputFormat
+                    Log.d(TAG, "encoder output format changed: $mEncodedFormat")
+                } else if (encoderStatus < 0) {
+                    Log.w(TAG, "unexpected result from encoder.dequeueOutputBuffer: $encoderStatus")
+                } else {
+                    var encodedData = encoderOutputBuffers[encoderStatus]
+                    if (encodedData == null) {
+                        throw RuntimeException("encoderOutputBuffer $encoderStatus was null")
+                    }
+
+                    if ((mBufferInfo!!.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                        if (VERBOSE) Log.d(TAG, "ignoring BUFFER_FLAG_CODEC_CONFIG")
+                        mBufferInfo!!.size = 0
+                    }
+
+                    if (mBufferInfo!!.size != 0) {
+                        encodedData.position(mBufferInfo!!.offset)
+                        encodedData.limit(mBufferInfo!!.offset + mBufferInfo!!.size)
+
+                        mCircularBuffer.add(encodedData, mBufferInfo!!.flags, mBufferInfo!!.presentationTimeUs)
+
+                        if (VERBOSE) Log.d(TAG, "sent ${mBufferInfo!!.size} bytes to muxer, ts=${mBufferInfo!!.presentationTimeUs}")
+                    }
+
+                    mEncoder.releaseOutputBuffer(encoderStatus, false)
+
+                    if ((mBufferInfo!!.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        Log.w(TAG, "reached end of stream unexpectedly")
+                        break      // out of while
+                    }
+                }
+            }
+        }
+
+        fun frameAvailableSoon() {
+            if (VERBOSE) Log.d(TAG, "frameAvailableSoon")
+            drainEncoder()
+
+            mFrameNum++
+            if ((mFrameNum % 10) == 0) {        // TODO: should base off frame rate or clock?
+                mCallback.bufferStatus(mCircularBuffer.computeTimeSpanUsec());
+            }
         }
 
         fun saveVideo(outputFile: File) {
             if (VERBOSE) Log.d(TAG, "saveVideo $outputFile")
 
-            var index: Int = mEncBuffer!!.getFirstIndex()
+            var index: Int = mCircularBuffer!!.getFirstIndex()
             if (index < 0) {
                 Log.w(TAG, "Unable to get first index")
                 mCallback!!.fileSaveComplete(1)
@@ -83,10 +241,10 @@ class Encoder(
                 muxer.start()
 
                 do {
-                    val buf: ByteBuffer = mEncBuffer!!.getChunk(index, info)
+                    val buf: ByteBuffer = mCircularBuffer!!.getChunk(index, info)
                     if (VERBOSE) Log.d(TAG, "SAVE ${index} flags=0x${Integer.toHexString(info.flags)}")
                     muxer.writeSampleData(videoTrack, buf, info)
-                    index = mEncBuffer!!.getNextIndex(index)
+                    index = mCircularBuffer!!.getNextIndex(index)
                 } while (index >= 0)
 
                 result = 0
