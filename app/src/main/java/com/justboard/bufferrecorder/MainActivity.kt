@@ -45,7 +45,6 @@ import com.justboard.bufferrecorder.components.views.AutoFitTextureView
 import com.justboard.bufferrecorder.services.Recorder
 import com.justboard.bufferrecorder.ui.theme.BufferRecorderTheme
 import com.justboard.bufferrecorder.utils.Encoder
-import com.justboard.bufferrecorder.workers.IdleRecordingWorker
 import kotlinx.coroutines.Dispatchers
 import java.io.File
 import java.lang.ref.WeakReference
@@ -214,8 +213,8 @@ fun PlayerButton(
 ) {
     Column {
         ExtendedFloatingActionButton(
-            text = { Text(Recorder.State.Start.text) },
-            icon = { Icon(Icons.Outlined.PlayArrow, "Start") },
+            text = { Text("Records") },
+            icon = { Icon(Icons.Outlined.VideoLibrary, "Records") },
             onClick = { onClick() }
         )
     }
