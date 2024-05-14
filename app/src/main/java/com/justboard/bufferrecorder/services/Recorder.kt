@@ -322,6 +322,8 @@ class Recorder(
         super.onClosed(camera)
         Log.i(CAMERA_TAG, "onClosed")
         mTextureViewSurface?.release()
+        mMediaCodec?.release()
+        mMediaMuxer?.release()
     }
 
     override fun onDisconnected(camera: CameraDevice) {
