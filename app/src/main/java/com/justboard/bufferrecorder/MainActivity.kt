@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -54,7 +55,6 @@ class MainActivity : ComponentActivity() {
         const val TAG = "MainActivity"
     }
 
-
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -63,11 +63,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private var mHandler: MainHandler? = null
-    private lateinit var workManager: WorkManager
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        workManager = WorkManager.getInstance(applicationContext)
         mHandler = MainHandler(WeakReference(this))
 
         super.onCreate(savedInstanceState)
@@ -76,23 +73,6 @@ class MainActivity : ComponentActivity() {
                 SimpleMainGrid(mHandler!!)
             }
         }
-    }
-
-    private fun startRecording(workTag: String) {
-        val workName = "Recorder"
-//        val workData = workDataOf("RECORD_ID" to workerTag)
-        val workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
-
-        val uniqueOneTimeWorkRequest: OneTimeWorkRequest =
-            OneTimeWorkRequestBuilder<IdleRecordingWorker>()
-//            .setInputData(workData)
-                .addTag(workTag)
-                .build()
-        workManager.enqueueUniqueWork(workName, workPolicy, uniqueOneTimeWorkRequest)
-    }
-
-    private fun stopRecording(workTag: String) {
-        workManager.cancelUniqueWork(workTag)
     }
 
 
