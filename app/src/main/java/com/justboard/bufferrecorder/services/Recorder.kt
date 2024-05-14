@@ -316,6 +316,11 @@ class Recorder(
             mCaptureSessionCallback,
             Handler()
         )
+
+//        val encoderHandlerThread = HandlerThread("Encoder")
+//        encoderHandlerThread.start()
+//        val encoderHandler = Handler(encoderHandlerThread.looper)
+//        encoderHandler.post(this::encode)
     }
 
     override fun onClosed(camera: CameraDevice) {
